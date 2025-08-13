@@ -1,5 +1,6 @@
 const accounts = { admin: "1234", user1: "1111", user2: "2222" };
 let currentUser = null;
+let currentDeviceId = null;
 let unreadCount = 0;
 let lastMessageId = 0;
 
@@ -65,10 +66,13 @@ function incrementNotification() {
 function resetNotification() {
   unreadCount = 0;
   updateNotificationUI();
-  document.title = "ប្រព័ន្ធផ្ញើសារ";
+  document.title = "ប្រព័ន្ធផ្ញើសារឆ្លងឧបករណ៍";
 }
 
 function updateNotificationUI() {
+  const notificationBell = document.getElementById("notificationBell");
+  const notificationCountElem = document.getElementById("notificationCount");
+
   if (unreadCount > 0) {
     notificationBell.classList.remove("hidden");
     notificationCountElem.textContent = unreadCount;
@@ -79,9 +83,9 @@ function updateNotificationUI() {
 
 function updateBrowserTitle() {
   if (unreadCount > 0) {
-    document.title = `(${unreadCount}) សារថ្មី`;
+    document.title = `(${unreadCount}) សារថ្មី | ប្រព័ន្ធផ្ញើសារឆ្លងឧបករណ៍`;
   } else {
-    document.title = "ប្រព័ន្ធផ្ញើសារ";
+    document.title = "ប្រព័ន្ធផ្ញើសារឆ្លងឧបករណ៍";
   }
 }
 
@@ -112,16 +116,26 @@ document.getElementById("loginBtn").onclick = () => {
     currentUser = u;
 
     // Generate or get existing device ID
-    let deviceId = localStorage.getItem(`device_${currentUser}`);
-    if (!deviceId) {
-      deviceId = generateDeviceId();
-      localStorage.setItem(`device_${currentUser}`, deviceId);
+    if (u === "admin") {
+      const deviceCount = Object.keys(
+        JSON.parse(localStorage.getItem("devices"))
+      ).filter((id) => id.startsWith(`device_admin`)).length;
+
+      currentDeviceId = `device_admin_${deviceCount + 1}_${Date.now()}`;
+      localStorage.setItem(`device_${currentUser}`, currentDeviceId);
+    } else {
+      currentDeviceId = generateDeviceId();
+      localStorage.setItem(`device_${currentUser}`, currentDeviceId);
     }
-    registerDevice(currentUser, deviceId);
+
+    registerDevice(currentUser, currentDeviceId);
 
     document.getElementById("loginBox").classList.add("hidden");
     if (u === "admin") {
       document.getElementById("adminPanel").classList.remove("hidden");
+      document.getElementById(
+        "adminDeviceDisplay"
+      ).textContent = `Device: ${currentDeviceId.substr(0, 10)}...`;
       loadAllMessages();
       loadDevicesList();
       resetNotification();
@@ -130,7 +144,7 @@ document.getElementById("loginBtn").onclick = () => {
       document.getElementById("userPanel").classList.remove("hidden");
       document.getElementById("userNameDisplay").textContent = u;
       document.getElementById("deviceIdDisplay").textContent =
-        deviceId.substr(0, 10) + "...";
+        currentDeviceId.substr(0, 10) + "...";
       loadUserMessages();
       resetNotification();
       startPolling();
@@ -156,14 +170,28 @@ document.getElementById("sendBtn").onclick = () => {
     const deviceId = localStorage.getItem(`device_${currentUser}`);
     const msgs = JSON.parse(localStorage.getItem("messages"));
 
-    msgs.push({
-      id: Date.now(),
-      user: currentUser,
-      device: deviceId,
-      text,
-      image: imgData,
-      replyTo: null,
-      timestamp: Date.now(),
+    // ស្វែងរក Admin Devices ទាំងអស់
+    const adminDevices = Object.entries(
+      JSON.parse(localStorage.getItem("devices"))
+    )
+      .filter(([id, info]) => info.user === "admin")
+      .map(([id]) => id);
+
+    // ផ្ញើសារទៅកាន់ Admin Devices ទាំងអស់
+    adminDevices.forEach((adminDevice) => {
+      const newMsgId = Date.now() + Math.floor(Math.random() * 1000); // ធានាថាមាន ID មិនដូចគ្នា
+
+      msgs.push({
+        id: newMsgId,
+        user: currentUser,
+        device: deviceId,
+        targetDevice: adminDevice,
+        text,
+        image: imgData,
+        replyTo: null,
+        timestamp: Date.now(),
+        isBroadcast: adminDevices.length > 1,
+      });
     });
 
     localStorage.setItem("messages", JSON.stringify(msgs));
@@ -197,7 +225,14 @@ function loadUserMessages(scroll = true) {
       );
       return `
         <div class="message">
-          <span class="message-user">អ្នក</span>:
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="message-user">អ្នក</span>
+            <small class="text-muted">${
+              m.isBroadcast
+                ? '<span class="broadcast-indicator">(ផ្ញើទៅ Admin ទាំងអស់)</span>'
+                : ""
+            }</small>
+          </div>
           <div>${escapeHtml(m.text)}</div>
           ${
             m.image
@@ -256,8 +291,14 @@ function loadAllMessages(scroll = true) {
   const msgs = JSON.parse(localStorage.getItem("messages"));
   const container = document.getElementById("allMessages");
 
-  container.innerHTML = msgs
-    .filter((m) => m.replyTo === null)
+  // Filter messages for this admin device
+  const filteredMsgs = msgs.filter(
+    (m) =>
+      m.replyTo === null &&
+      (!m.targetDevice || m.targetDevice === currentDeviceId)
+  );
+
+  container.innerHTML = filteredMsgs
     .map((m) => {
       const replies = msgs.filter((r) => r.replyTo === m.id);
       return `
@@ -268,12 +309,26 @@ function loadAllMessages(scroll = true) {
                 m.user === "admin" ? "message-admin" : "message-user"
               }">
                 ${escapeHtml(m.user)}
-              </span>:
+              </span>
+              ${
+                m.isBroadcast
+                  ? '<span class="broadcast-indicator">(Broadcast)</span>'
+                  : ""
+              }
             </div>
             <div class="device-info">
-              <small>${
-                m.device ? "Device: " + m.device.substr(0, 10) + "..." : ""
+              <small>From: ${
+                m.device ? m.device.substr(0, 10) + "..." : "Unknown"
               }</small>
+              ${
+                m.targetDevice
+                  ? `<span class="device-target">To: ${
+                      m.targetDevice === currentDeviceId
+                        ? "This device"
+                        : m.targetDevice.substr(0, 10) + "..."
+                    }</span>`
+                  : ""
+              }
             </div>
           </div>
           <div>${escapeHtml(m.text)}</div>
@@ -314,8 +369,8 @@ function loadAllMessages(scroll = true) {
     containerBox.scrollTop = containerBox.scrollHeight;
   }
 
-  if (msgs.length) {
-    lastMessageId = Math.max(lastMessageId, ...msgs.map((m) => m.id));
+  if (filteredMsgs.length) {
+    lastMessageId = Math.max(lastMessageId, ...filteredMsgs.map((m) => m.id));
   }
 }
 
@@ -351,13 +406,44 @@ function loadDevicesList() {
       ([id, info]) => `
       <tr>
         <td title="${id}">${id.substr(0, 10)}...</td>
-        <td>${info.user}</td>
+        <td>${info.user} ${
+        info.user === "admin"
+          ? '<span class="admin-device-tag">Admin</span>'
+          : ""
+      }</td>
         <td>${formatTimestamp(info.firstSeen)}</td>
         <td>${formatTimestamp(info.lastActive)}</td>
+        <td>
+          ${
+            info.user !== "admin"
+              ? `<button class="btn btn-sm btn-outline-info" onclick="sendTestMessage('${id}')">សារល្បង</button>`
+              : ""
+          }
+        </td>
       </tr>
     `
     )
     .join("");
+}
+
+// Send test message to device (Admin)
+function sendTestMessage(deviceId) {
+  const msgs = JSON.parse(localStorage.getItem("messages"));
+  const newMsgId = Date.now();
+
+  msgs.push({
+    id: newMsgId,
+    user: "admin",
+    device: currentDeviceId,
+    targetDevice: deviceId,
+    text: "សារល្បងពី Admin",
+    image: null,
+    replyTo: null,
+    timestamp: Date.now(),
+  });
+
+  localStorage.setItem("messages", JSON.stringify(msgs));
+  loadAllMessages();
 }
 
 // Show/hide reply box (Admin)
@@ -373,10 +459,13 @@ function sendReply(parentId) {
   const txt = document.getElementById(`replyText-${parentId}`).value.trim();
   if (!txt) return alert("សូមបញ្ចូលសារឆ្លើយ!");
   const msgs = JSON.parse(localStorage.getItem("messages"));
+  const parentMsg = msgs.find((m) => m.id === parentId);
 
   msgs.push({
     id: Date.now(),
     user: "admin",
+    device: currentDeviceId,
+    targetDevice: parentMsg.device, // Reply to sender's device
     text: txt,
     image: null,
     replyTo: parentId,
@@ -387,7 +476,7 @@ function sendReply(parentId) {
   hideReplyBox(parentId);
   loadAllMessages();
 
-  if (currentUser !== "admin" && currentUser !== null) {
+  if (currentUser !== "admin") {
     incrementNotification();
   }
 }
@@ -416,7 +505,7 @@ function editMessage(id) {
 }
 
 // When clicking notification bell
-notificationBell.onclick = () => {
+document.getElementById("notificationBell").onclick = () => {
   if (currentUser !== null) {
     if (currentUser === "admin") {
       const containerBox = document.getElementById("adminMessagesContainer");
@@ -438,14 +527,17 @@ function startPolling() {
     let newMessages = [];
 
     if (currentUser === "admin") {
-      // Admin sees all new messages after lastMessageId
-      newMessages = msgs.filter((m) => m.id > lastMessageId);
-      // Also update devices list
+      // Admin sees messages targeted to this device
+      newMessages = msgs.filter(
+        (m) =>
+          m.id > lastMessageId &&
+          (!m.targetDevice || m.targetDevice === currentDeviceId)
+      );
       loadDevicesList();
     } else {
-      // User sees new admin replies or messages from others
+      // User sees replies from admin
       newMessages = msgs.filter(
-        (m) => m.id > lastMessageId && m.user !== currentUser
+        (m) => m.id > lastMessageId && m.user === "admin" && m.replyTo !== null
       );
 
       // Update device last active

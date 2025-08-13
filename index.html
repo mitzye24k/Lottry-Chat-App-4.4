@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ប្រព័ន្ធផ្ញើសារ</title>
+    <title>ប្រព័ន្ធផ្ញើសារឆ្លងឧបករណ៍</title>
     <!-- Bootstrap CSS -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
@@ -21,6 +21,7 @@
         --success-color: #1cc88a;
         --danger-color: #e74a3b;
         --info-color: #36b9cc;
+        --warning-color: #f6c23e;
       }
       body {
         font-family: "Koulen", "Battambang", sans-serif;
@@ -126,6 +127,27 @@
         font-size: 0.7rem;
         background-color: var(--info-color);
       }
+      .broadcast-indicator {
+        font-size: 0.7rem;
+        color: var(--warning-color);
+        margin-left: 5px;
+      }
+      .device-target {
+        font-size: 0.7rem;
+        color: var(--info-color);
+        background: #e6f2ff;
+        padding: 2px 5px;
+        border-radius: 3px;
+        margin-left: 5px;
+      }
+      .admin-device-tag {
+        font-size: 0.7rem;
+        background-color: var(--success-color);
+        color: white;
+        padding: 2px 5px;
+        border-radius: 3px;
+        margin-left: 5px;
+      }
     </style>
   </head>
   <body>
@@ -189,7 +211,7 @@
               accept="image/*"
             />
             <button id="sendBtn" class="btn btn-primary">
-              <i class="fas fa-paper-plane me-2"></i>ផ្ញើសារ
+              <i class="fas fa-paper-plane me-2"></i>ផ្ញើសារទៅ Admin ទាំងអស់
             </button>
           </div>
         </div>
@@ -220,6 +242,7 @@
                   <th>User</th>
                   <th>First Seen</th>
                   <th>Last Active</th>
+                  <th>សកម្មភាព</th>
                 </tr>
               </thead>
               <tbody id="devicesList"></tbody>
@@ -232,8 +255,11 @@
           style="height: 500px; overflow-y: auto"
           id="adminMessagesContainer"
         >
-          <div class="card-header">
+          <div
+            class="card-header d-flex justify-content-between align-items-center"
+          >
             <h2><i class="fas fa-tools me-2"></i>សារទាំងអស់</h2>
+            <span id="adminDeviceDisplay" class="badge admin-device-tag"></span>
           </div>
           <div class="card-body" id="allMessages"></div>
         </div>
@@ -247,7 +273,6 @@
     <div id="lightboxOverlay">
       <img src="" alt="Preview" />
     </div>
-
     <script src="./app.js"></script>
   </body>
 </html>
