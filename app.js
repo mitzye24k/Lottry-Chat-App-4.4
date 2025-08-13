@@ -1,17 +1,17 @@
-const accounts = {
-  admin: "168",
-  user1: "1111",
-  user2: "2222",
-  saka: "1111",
-};
+const accounts = { admin: "1234", user1: "1111", user2: "2222" };
 let currentUser = null;
 let unreadCount = 0;
 let lastMessageId = 0;
 
+// Initialize storage
 if (!localStorage.getItem("messages")) {
   localStorage.setItem("messages", JSON.stringify([]));
 }
+if (!localStorage.getItem("devices")) {
+  localStorage.setItem("devices", JSON.stringify({}));
+}
 
+// Helper functions
 function formatTimestamp(ts) {
   const d = new Date(ts);
   return `${String(d.getDate()).padStart(2, "0")}/${String(
@@ -32,25 +32,105 @@ function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
-// Notification Bell Elements
-const notificationBell = document.getElementById("notificationBell");
-const notificationCountElem = document.getElementById("notificationCount");
+function generateDeviceId() {
+  return (
+    "device_" +
+    Math.random().toString(36).substr(2, 9) +
+    "_" +
+    Date.now().toString(36)
+  );
+}
+
+function registerDevice(user, deviceId) {
+  const devices = JSON.parse(localStorage.getItem("devices"));
+  if (!devices[deviceId]) {
+    devices[deviceId] = {
+      user,
+      firstSeen: Date.now(),
+      lastActive: Date.now(),
+      ip: "N/A",
+    };
+    localStorage.setItem("devices", JSON.stringify(devices));
+  }
+  return deviceId;
+}
+
+// Notification functions
+function incrementNotification() {
+  unreadCount++;
+  updateNotificationUI();
+  updateBrowserTitle();
+}
+
+function resetNotification() {
+  unreadCount = 0;
+  updateNotificationUI();
+  document.title = "ប្រព័ន្ធផ្ញើសារ";
+}
+
+function updateNotificationUI() {
+  if (unreadCount > 0) {
+    notificationBell.classList.remove("hidden");
+    notificationCountElem.textContent = unreadCount;
+  } else {
+    notificationBell.classList.add("hidden");
+  }
+}
+
+function updateBrowserTitle() {
+  if (unreadCount > 0) {
+    document.title = `(${unreadCount}) សារថ្មី`;
+  } else {
+    document.title = "ប្រព័ន្ធផ្ញើសារ";
+  }
+}
+
+// Lightbox for images
+function addImageClickEvents() {
+  const imgs = document.querySelectorAll("img.clickable-image");
+  const lightbox = document.getElementById("lightboxOverlay");
+  const lightboxImg = lightbox.querySelector("img");
+  imgs.forEach(
+    (img) =>
+      (img.onclick = () => {
+        lightboxImg.src = img.src;
+        lightbox.style.display = "flex";
+      })
+  );
+  lightbox.onclick = () => {
+    lightbox.style.display = "none";
+    lightboxImg.src = "";
+  };
+}
 
 // LOGIN
 document.getElementById("loginBtn").onclick = () => {
   const u = document.getElementById("username").value.trim();
   const p = document.getElementById("password").value.trim();
+
   if (accounts[u] && accounts[u] === p) {
     currentUser = u;
+
+    // Generate or get existing device ID
+    let deviceId = localStorage.getItem(`device_${currentUser}`);
+    if (!deviceId) {
+      deviceId = generateDeviceId();
+      localStorage.setItem(`device_${currentUser}`, deviceId);
+    }
+    registerDevice(currentUser, deviceId);
+
     document.getElementById("loginBox").classList.add("hidden");
     if (u === "admin") {
       document.getElementById("adminPanel").classList.remove("hidden");
       loadAllMessages();
+      loadDevicesList();
       resetNotification();
       startPolling();
     } else {
       document.getElementById("userPanel").classList.remove("hidden");
       document.getElementById("userNameDisplay").textContent = u;
+      document.getElementById("deviceIdDisplay").textContent =
+        deviceId.substr(0, 10) + "...";
       loadUserMessages();
       resetNotification();
       startPolling();
@@ -73,19 +153,30 @@ document.getElementById("sendBtn").onclick = () => {
   const reader = new FileReader();
   reader.onload = (e) => {
     const imgData = file ? e.target.result : null;
+    const deviceId = localStorage.getItem(`device_${currentUser}`);
     const msgs = JSON.parse(localStorage.getItem("messages"));
+
     msgs.push({
       id: Date.now(),
       user: currentUser,
+      device: deviceId,
       text,
       image: imgData,
       replyTo: null,
       timestamp: Date.now(),
     });
+
     localStorage.setItem("messages", JSON.stringify(msgs));
     document.getElementById("msgText").value = "";
     document.getElementById("msgImage").value = "";
     loadUserMessages();
+
+    // Update device last active
+    const devices = JSON.parse(localStorage.getItem("devices"));
+    if (devices[deviceId]) {
+      devices[deviceId].lastActive = Date.now();
+      localStorage.setItem("devices", JSON.stringify(devices));
+    }
   };
   if (file) reader.readAsDataURL(file);
   else reader.onload({ target: { result: null } });
@@ -105,26 +196,26 @@ function loadUserMessages(scroll = true) {
         (r) => r.replyTo === m.id && r.user === "admin"
       );
       return `
-          <div class="message">
-            <span class="message-user">អ្នក</span>:
-            <div>${escapeHtml(m.text)}</div>
-            ${
-              m.image
-                ? `<img src="${m.image}" class="img-thumbnail clickable-image">`
-                : ""
-            }
-            <div class="timestamp">${formatTimestamp(m.timestamp)}</div>
-            <div class="message-actions">
-              <button class="btn btn-sm btn-outline-primary" onclick="editMessage(${
-                m.id
-              })">កែ</button>
-              <button class="btn btn-sm btn-outline-danger" onclick="deleteMessage(${
-                m.id
-              })">លុប</button>
-            </div>
-            ${renderUserReplies(replies)}
+        <div class="message">
+          <span class="message-user">អ្នក</span>:
+          <div>${escapeHtml(m.text)}</div>
+          ${
+            m.image
+              ? `<img src="${m.image}" class="img-thumbnail clickable-image">`
+              : ""
+          }
+          <div class="timestamp">${formatTimestamp(m.timestamp)}</div>
+          <div class="message-actions">
+            <button class="btn btn-sm btn-outline-primary" onclick="editMessage(${
+              m.id
+            })">កែ</button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteMessage(${
+              m.id
+            })">លុប</button>
           </div>
-        `;
+          ${renderUserReplies(replies)}
+        </div>
+      `;
     })
     .join("");
   addImageClickEvents();
@@ -142,22 +233,22 @@ function loadUserMessages(scroll = true) {
 function renderUserReplies(replies) {
   if (!replies.length) return "";
   return `<div class="reply-section">
-        ${replies
-          .map(
-            (r) => `
-          <div class="reply-message">
-            <span class="message-admin">Admin</span>: ${escapeHtml(r.text)}
-            ${
-              r.image
-                ? `<img src="${r.image}" class="img-thumbnail clickable-image">`
-                : ""
-            }
-            <div class="timestamp">${formatTimestamp(r.timestamp)}</div>
-          </div>
-        `
-          )
-          .join("")}
-      </div>`;
+      ${replies
+        .map(
+          (r) => `
+        <div class="reply-message">
+          <span class="message-admin">Admin</span>: ${escapeHtml(r.text)}
+          ${
+            r.image
+              ? `<img src="${r.image}" class="img-thumbnail clickable-image">`
+              : ""
+          }
+          <div class="timestamp">${formatTimestamp(r.timestamp)}</div>
+        </div>
+      `
+        )
+        .join("")}
+    </div>`;
 }
 
 // LOAD ALL MESSAGES (Admin view)
@@ -170,39 +261,50 @@ function loadAllMessages(scroll = true) {
     .map((m) => {
       const replies = msgs.filter((r) => r.replyTo === m.id);
       return `
-          <div class="message">
-            <span class="${
-              m.user === "admin" ? "message-admin" : "message-user"
-            }">${escapeHtml(m.user)}</span>:
-            <div>${escapeHtml(m.text)}</div>
-            ${
-              m.image
-                ? `<img src="${m.image}" class="img-thumbnail clickable-image">`
-                : ""
-            }
-            <div class="timestamp">${formatTimestamp(m.timestamp)}</div>
+        <div class="message">
+          <div class="d-flex justify-content-between">
             <div>
-              <button class="btn btn-sm btn-success" onclick="showReplyBox(${
-                m.id
-              })">ឆ្លើយ</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteMessage(${
-                m.id
-              })">លុប</button>
+              <span class="${
+                m.user === "admin" ? "message-admin" : "message-user"
+              }">
+                ${escapeHtml(m.user)}
+              </span>:
             </div>
-            <div id="replyBox-${m.id}" class="hidden mt-2">
-              <textarea id="replyText-${
-                m.id
-              }" class="form-control mb-2"></textarea>
-              <button class="btn btn-sm btn-success" onclick="sendReply(${
-                m.id
-              })">ផ្ញើ</button>
-              <button class="btn btn-sm btn-secondary" onclick="hideReplyBox(${
-                m.id
-              })">បោះបង់</button>
+            <div class="device-info">
+              <small>${
+                m.device ? "Device: " + m.device.substr(0, 10) + "..." : ""
+              }</small>
             </div>
-            ${renderReplies(replies)}
           </div>
-        `;
+          <div>${escapeHtml(m.text)}</div>
+          ${
+            m.image
+              ? `<img src="${m.image}" class="img-thumbnail clickable-image">`
+              : ""
+          }
+          <div class="timestamp">${formatTimestamp(m.timestamp)}</div>
+          <div>
+            <button class="btn btn-sm btn-success" onclick="showReplyBox(${
+              m.id
+            })">ឆ្លើយ</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteMessage(${
+              m.id
+            })">លុប</button>
+          </div>
+          <div id="replyBox-${m.id}" class="hidden mt-2">
+            <textarea id="replyText-${
+              m.id
+            }" class="form-control mb-2"></textarea>
+            <button class="btn btn-sm btn-success" onclick="sendReply(${
+              m.id
+            })">ផ្ញើ</button>
+            <button class="btn btn-sm btn-secondary" onclick="hideReplyBox(${
+              m.id
+            })">បោះបង់</button>
+          </div>
+          ${renderReplies(replies)}
+        </div>
+      `;
     })
     .join("");
   addImageClickEvents();
@@ -222,19 +324,38 @@ function renderReplies(replies) {
   return replies
     .map(
       (r) => `
-        <div class="reply-message">
-          <span class="${
-            r.user === "admin" ? "message-admin" : "message-user"
-          }">${escapeHtml(r.user)}</span>:
-          ${escapeHtml(r.text)}
-          ${
-            r.image
-              ? `<img src="${r.image}" class="img-thumbnail clickable-image">`
-              : ""
-          }
-          <div class="timestamp">${formatTimestamp(r.timestamp)}</div>
-        </div>
-      `
+      <div class="reply-message">
+        <span class="${
+          r.user === "admin" ? "message-admin" : "message-user"
+        }">${escapeHtml(r.user)}</span>:
+        ${escapeHtml(r.text)}
+        ${
+          r.image
+            ? `<img src="${r.image}" class="img-thumbnail clickable-image">`
+            : ""
+        }
+        <div class="timestamp">${formatTimestamp(r.timestamp)}</div>
+      </div>
+    `
+    )
+    .join("");
+}
+
+// LOAD DEVICES LIST (Admin view)
+function loadDevicesList() {
+  const devices = JSON.parse(localStorage.getItem("devices"));
+  const tbody = document.getElementById("devicesList");
+
+  tbody.innerHTML = Object.entries(devices)
+    .map(
+      ([id, info]) => `
+      <tr>
+        <td title="${id}">${id.substr(0, 10)}...</td>
+        <td>${info.user}</td>
+        <td>${formatTimestamp(info.firstSeen)}</td>
+        <td>${formatTimestamp(info.lastActive)}</td>
+      </tr>
+    `
     )
     .join("");
 }
@@ -252,6 +373,7 @@ function sendReply(parentId) {
   const txt = document.getElementById(`replyText-${parentId}`).value.trim();
   if (!txt) return alert("សូមបញ្ចូលសារឆ្លើយ!");
   const msgs = JSON.parse(localStorage.getItem("messages"));
+
   msgs.push({
     id: Date.now(),
     user: "admin",
@@ -260,6 +382,7 @@ function sendReply(parentId) {
     replyTo: parentId,
     timestamp: Date.now(),
   });
+
   localStorage.setItem("messages", JSON.stringify(msgs));
   hideReplyBox(parentId);
   loadAllMessages();
@@ -292,54 +415,7 @@ function editMessage(id) {
   }
 }
 
-// Lightbox for images
-function addImageClickEvents() {
-  const imgs = document.querySelectorAll("img.clickable-image");
-  const lightbox = document.getElementById("lightboxOverlay");
-  const lightboxImg = lightbox.querySelector("img");
-  imgs.forEach(
-    (img) =>
-      (img.onclick = () => {
-        lightboxImg.src = img.src;
-        lightbox.style.display = "flex";
-      })
-  );
-  lightbox.onclick = () => {
-    lightbox.style.display = "none";
-    lightboxImg.src = "";
-  };
-}
-
-// Notification functions
-function incrementNotification() {
-  unreadCount++;
-  updateNotificationUI();
-  updateBrowserTitle();
-}
-
-function resetNotification() {
-  unreadCount = 0;
-  updateNotificationUI();
-  document.title = "ប្រព័ន្ធផ្ញើសារ";
-}
-
-function updateNotificationUI() {
-  if (unreadCount > 0) {
-    notificationBell.classList.remove("hidden");
-    notificationCountElem.textContent = unreadCount;
-  } else {
-    notificationBell.classList.add("hidden");
-  }
-}
-
-function updateBrowserTitle() {
-  if (unreadCount > 0) {
-    document.title = `(${unreadCount}) សារថ្មី`;
-  } else {
-    document.title = "ប្រព័ន្ធផ្ញើសារ";
-  }
-}
-// When clicking notification bell, scroll to bottom of messages and reset count
+// When clicking notification bell
 notificationBell.onclick = () => {
   if (currentUser !== null) {
     if (currentUser === "admin") {
@@ -364,11 +440,21 @@ function startPolling() {
     if (currentUser === "admin") {
       // Admin sees all new messages after lastMessageId
       newMessages = msgs.filter((m) => m.id > lastMessageId);
+      // Also update devices list
+      loadDevicesList();
     } else {
       // User sees new admin replies or messages from others
       newMessages = msgs.filter(
         (m) => m.id > lastMessageId && m.user !== currentUser
       );
+
+      // Update device last active
+      const deviceId = localStorage.getItem(`device_${currentUser}`);
+      const devices = JSON.parse(localStorage.getItem("devices"));
+      if (devices[deviceId]) {
+        devices[deviceId].lastActive = Date.now();
+        localStorage.setItem("devices", JSON.stringify(devices));
+      }
     }
 
     if (newMessages.length > 0) {
